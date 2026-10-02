@@ -37,19 +37,39 @@ chrome.commands.onCommand.addListener(async (command) => {
   if (tab) startSelection(tab);
 });
 
+// Стили оверлея живут в отдельном файле и подключаются через insertCSS: у content script'а
+// нет прав вставлять их самому, а <style> в странице может убить её CSP. Без этого оверлей
+// создаётся нулевой высоты — «нажимаю, а ничего не появляется».
 async function startSelection(tab) {
-  if (!tab || tab.id == null) return;
+  if (!tab || tab.id == null) return { ok: false, reason: 'нет вкладки' };
   const url = tab.url || '';
-  if (!/^(https?|file):/.test(url)) return;
+  if (!/^(https?|file):/.test(url)) return { ok: false, reason: 'на этой странице расширение не работает (' + url.split(':')[0] + ':)' };
   try {
+    await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: ['src/content.css'] });
     await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['src/content.js'] });
+    return { ok: true };
   } catch (e) {
-    console.warn('[TransLens] не удалось внедрить content script:', e);
+    const reason = String((e && e.message) || e);
+    console.warn('[TransLens] не удалось включить выделение:', reason);
+    return { ok: false, reason };
   }
 }
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg || typeof msg.type !== 'string') return;
+  // Внутренний (только для своих контекстов) запуск выделения: используется в автотестах
+  // вместо клика по иконке, который через CDP не воспроизвести.
+  if (msg.type === 'start-selection') {
+    (async () => {
+      // Явный tabId важнее sender.tab: страница настроек тоже живёт во вкладке, и её
+      // sender.tab указывает на неё саму, а не на ту вкладку, которую надо разметить.
+      const tabId = msg.tabId != null ? msg.tabId : sender.tab && sender.tab.id;
+      if (tabId == null) return { ok: false, reason: 'нет вкладки' };
+      const tab = msg.tabId != null ? await chrome.tabs.get(tabId) : sender.tab;
+      return startSelection(tab);
+    })().then(sendResponse, (e) => sendResponse({ ok: false, reason: String((e && e.message) || e) }));
+    return true;
+  }
   if (msg.type === 'capture-ocr') {
     captureAndOcr(msg, sender).then(sendResponse, (e) => sendResponse({ ok: false, error: String(e && e.message || e) }));
     return true;

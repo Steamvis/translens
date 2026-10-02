@@ -228,27 +228,13 @@ async function main() {
       return r.result.value === true;
     }, { label: 'тестовая страница и картинки' });
 
-    /* 4. внедряем content script (в тесте — из SW, без activeTab) */
-    const pageUrl = await browser.send('Runtime.evaluate', { expression: 'location.href', returnByValue: true }, page);
-    const inject = await browser.send('Runtime.evaluate', {
-      expression: `(async () => {
-        try {
-          const tabs = await chrome.tabs.query({ url: 'http://127.0.0.1:${SITE_PORT}/*' });
-          const tab = tabs[0];
-          if (!tab) return 'no-tab';
-          await chrome.tabs.update(tab.id, { active: true });
-          await chrome.scripting.insertCSS({ target: { tabId: tab.id }, files: ['src/content.css'] });
-          await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ['src/content.js'] });
-          return 'ok:' + tab.id;
-        } catch (e) { return 'ERR:: ' + (e && (e.message || e.toString()) || e); }
-      })()`,
-      awaitPromise: true, returnByValue: true,
-    }, sw);
-    check('content script внедрён через chrome.scripting', String(inject.result.value).startsWith('ok:'), String(inject.result.value));
-    await waitFor(async () => {
-      const r = await browser.send('Runtime.evaluate', { expression: `!!document.querySelector('.cqt-overlay')`, returnByValue: true }, page);
-      return r.result.value === true;
-    }, { label: 'оверлей выделения' });
+    /* 4. запускаем выделение боевым путём (startSelection в воркере) */
+    const startRes = await startSelectionOnTestTab();
+    check('startSelection отработал (insertCSS + inject)', startRes.includes('"ok":true'), startRes.slice(0, 200));
+    const ov = await waitFor(overlayState, { label: 'оверлей выделения' });
+    check('оверлей растянут на вьюпорт (стили подключились)',
+      ov.position === 'fixed' && Math.abs(ov.w - ov.vw) <= 2 && Math.abs(ov.h - ov.vh) <= 2,
+      JSON.stringify(ov));
 
     /* 5. реальный drag мышью по картинке с субтитрами Cloud Quest */
     async function dragOver(selector) {
@@ -266,6 +252,37 @@ async function main() {
       }
       await browser.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: x2, y: y2, ...common }, page);
       return { x, y, x2, y2 };
+    }
+
+    // Тот же путь, что и клик по иконке/хоткей: startSelection в воркере (insertCSS + inject).
+    // Клик по иконке через CDP не воспроизвести, поэтому дёргаем внутреннее сообщение.
+    async function startSelectionOnTestTab() {
+      const r = await browser.send('Runtime.evaluate', {
+        expression: `(async () => {
+          try {
+            const tabs = await chrome.tabs.query({ url: 'http://127.0.0.1:${SITE_PORT}/*' });
+            const tab = tabs[0];
+            if (!tab) return 'no-tab';
+            await chrome.tabs.update(tab.id, { active: true });
+            const res = await chrome.runtime.sendMessage({ type: 'start-selection', tabId: tab.id });
+            return JSON.stringify(res);
+          } catch (e) { return 'ERR:: ' + (e && e.message || e); }
+        })()`,
+        awaitPromise: true, returnByValue: true,
+      }, opt);
+      return String(r.result.value);
+    }
+
+    async function overlayState() {
+      const r = await browser.send('Runtime.evaluate', {
+        expression: `(() => { const o = document.querySelector('.cqt-overlay');
+          if (!o) return null;
+          const s = getComputedStyle(o); const b = o.getBoundingClientRect();
+          return JSON.stringify({ position: s.position, w: Math.round(b.width), h: Math.round(b.height),
+            vw: innerWidth, vh: innerHeight }); })()`,
+        returnByValue: true,
+      }, page);
+      return r.result.value ? JSON.parse(r.result.value) : null;
     }
 
     async function readPanel() {
@@ -286,18 +303,9 @@ async function main() {
     ];
     for (const [sel, label, expect] of cases) {
       await browser.send('Runtime.evaluate', { expression: `document.querySelectorAll('.cqt-panel, .cqt-box, .cqt-chip').forEach(e => e.remove())`, returnByValue: true }, page);
-      // как в бою: каждое выделение начинается с активации расширения (там — хоткей)
-      await browser.send('Runtime.evaluate', {
-        expression: `(async () => {
-          const tabs = await chrome.tabs.query({ url: 'http://127.0.0.1:${SITE_PORT}/*' });
-          await chrome.scripting.executeScript({ target: { tabId: tabs[0].id }, files: ['src/content.js'] });
-          return 'restarted';
-        })()`, awaitPromise: true, returnByValue: true,
-      }, sw);
-      await waitFor(async () => {
-        const r = await browser.send('Runtime.evaluate', { expression: `!!document.querySelector('.cqt-overlay')`, returnByValue: true }, page);
-        return r.result.value === true;
-      }, { label: 'оверлей ' + sel });
+      // как в бою: каждое выделение начинается с активации расширения (Alt+Shift+S / иконка)
+      await startSelectionOnTestTab();
+      await waitFor(overlayState, { label: 'оверлей ' + sel });
       const t0 = Date.now();
       const rect = await dragOver(sel);
       const opened = await waitFor(async () => {
