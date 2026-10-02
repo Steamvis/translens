@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <title>TransLens test page</title>
+  <style>
+    body { margin: 0; padding: 0; background: #0b1418; color: #e8f6ff;
+           font: 15px/1.5 -apple-system, system-ui, sans-serif; }
+    .wrap { padding: 24px; }
+    .slot { margin: 0 0 26px; }
+    .slot h2 { font-size: 12px; letter-spacing: .12em; text-transform: uppercase; color: #6f93a5; margin: 0 0 8px; }
+    img { display: block; }
+    #caption { width: 755px; height: auto; }
+    #dark, #light { width: 1100px; height: auto; }
+    #htmltext { font-size: 20px; color: #dff2ff; padding: 10px 0; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="slot"><h2>cloud quest caption (real screenshot crop)</h2><img id="caption" src="caption.png" /></div>
+    <div class="slot"><h2>dark ui synthetic</h2><img id="dark" src="dark.png" /></div>
+    <div class="slot"><h2>light ui synthetic</h2><img id="light" src="light.png" /></div>
+    <div class="slot"><h2>plain html text (control: ocr not needed, but pipeline same)</h2>
+      <div id="htmltext">S3 bucket policies control access to objects at the bucket level.</div></div>
+  </div>
+</body>
+</html>

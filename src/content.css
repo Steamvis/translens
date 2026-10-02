@@ -1,0 +1,144 @@
+/* TransLens — стили оверлея и панели перевода. Инжектируются через chrome.scripting.insertCSS (не зависят от CSP страницы). */
+
+.cqt-overlay,
+.cqt-overlay * { box-sizing: border-box !important; }
+
+.cqt-overlay {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 2147483646 !important;
+  cursor: crosshair !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif !important;
+}
+
+.cqt-overlay.cqt-dim { background: rgba(3, 10, 16, 0.42) !important; }
+
+.cqt-hint {
+  position: fixed !important;
+  top: 14px !important;
+  left: 50% !important;
+  transform: translateX(-50%) !important;
+  background: rgba(4, 14, 22, 0.95) !important;
+  color: #d9f4ff !important;
+  border: 1px solid #35e0ff !important;
+  border-radius: 8px !important;
+  padding: 7px 13px !important;
+  font-size: 12px !important;
+  line-height: 1.4 !important;
+  letter-spacing: 0.02em !important;
+  white-space: nowrap !important;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55) !important;
+  pointer-events: none !important;
+}
+
+.cqt-box {
+  position: fixed !important;
+  z-index: 2147483646 !important;
+  border: 1px solid #35e0ff !important;
+  background: rgba(53, 224, 255, 0.10) !important;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45), 0 0 24px rgba(53, 224, 255, 0.35) !important;
+  pointer-events: none !important;
+}
+
+.cqt-box.cqt-captured {
+  border-style: solid !important;
+  background: transparent !important;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 0 14px rgba(53, 224, 255, 0.55) !important;
+}
+
+.cqt-chip {
+  position: fixed !important;
+  z-index: 2147483647 !important;
+  background: rgba(4, 14, 22, 0.95) !important;
+  color: #bfefff !important;
+  border: 1px solid #35e0ff !important;
+  border-radius: 6px !important;
+  padding: 4px 9px !important;
+  font-size: 11px !important;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif !important;
+  pointer-events: none !important;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5) !important;
+  white-space: nowrap !important;
+}
+
+.cqt-panel {
+  position: fixed !important;
+  z-index: 2147483647 !important;
+  width: min(540px, 92vw) !important;
+  max-height: 62vh !important;
+  overflow: auto !important;
+  background: #06141d !important;
+  color: #e8f6ff !important;
+  border: 1px solid #35e0ff !important;
+  border-radius: 10px !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6) !important;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif !important;
+  font-size: 13px !important;
+  line-height: 1.5 !important;
+  text-align: left !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+.cqt-head {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  padding: 7px 10px !important;
+  border-bottom: 1px solid rgba(53, 224, 255, 0.35) !important;
+  background: rgba(53, 224, 255, 0.06) !important;
+}
+
+.cqt-title {
+  flex: 1 !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.16em !important;
+  text-transform: uppercase !important;
+  color: #35e0ff !important;
+  margin: 0 !important;
+}
+
+.cqt-btn {
+  background: transparent !important;
+  color: #9fdcf0 !important;
+  border: 1px solid rgba(53, 224, 255, 0.45) !important;
+  border-radius: 6px !important;
+  padding: 3px 8px !important;
+  font-size: 11px !important;
+  font-family: inherit !important;
+  cursor: pointer !important;
+  line-height: 1.4 !important;
+}
+
+.cqt-btn:hover { background: rgba(53, 224, 255, 0.14) !important; color: #ffffff !important; }
+
+.cqt-src {
+  padding: 9px 12px !important;
+  color: #8fb4c6 !important;
+  font-size: 12px !important;
+  white-space: pre-wrap !important;
+  overflow-wrap: anywhere !important;
+  border-bottom: 1px dashed rgba(53, 224, 255, 0.22) !important;
+  margin: 0 !important;
+}
+
+.cqt-dst {
+  padding: 11px 12px !important;
+  white-space: pre-wrap !important;
+  overflow-wrap: anywhere !important;
+  font-size: 14px !important;
+  margin: 0 !important;
+}
+
+.cqt-note {
+  padding: 5px 12px 10px !important;
+  color: #7fa3b5 !important;
+  font-size: 11px !important;
+  margin: 0 !important;
+}
+
+.cqt-note.cqt-warn { color: #ffcf6b !important; }
+.cqt-note.cqt-err { color: #ff8f8f !important; }

@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="26" fill="#06141d"/>
+  <g stroke="#35e0ff" stroke-width="7" fill="none" stroke-linecap="square">
+    <path d="M22 44V30a8 8 0 0 1 8-8h14"/>
+    <path d="M106 44V30a8 8 0 0 0-8-8H84"/>
+    <path d="M22 84v14a8 8 0 0 0 8 8h14"/>
+    <path d="M106 84v14a8 8 0 0 1-8 8H84"/>
+  </g>
+  <text x="64" y="86" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-size="58" font-weight="700" fill="#ffffff">A</text>
+  <text x="30" y="60" font-family="Helvetica, Arial, sans-serif" font-size="26" fill="#35e0ff">en</text>
+  <text x="72" y="60" font-family="Helvetica, Arial, sans-serif" font-size="26" fill="#35e0ff">ru</text>
+</svg>

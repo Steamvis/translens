@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <title>TransLens — настройки</title>
+    <style>
+      :root { color-scheme: dark; }
+      body { margin: 0; padding: 28px; background: #06141d; color: #e8f6ff;
+             font: 400 14px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif; }
+      h1 { font-size: 20px; margin: 0 0 4px; color: #35e0ff; letter-spacing: .02em; }
+      p.sub { margin: 0 0 22px; color: #7fa3b5; font-size: 12px; }
+      .card { max-width: 620px; background: #081c28; border: 1px solid rgba(53,224,255,.35); border-radius: 10px; padding: 18px 20px; margin-bottom: 16px; }
+      .row { display: flex; align-items: center; gap: 12px; margin: 10px 0; }
+      .row label { flex: 0 0 190px; color: #b7dced; font-size: 13px; }
+      select, input[type=number] { background: #04121a; color: #e8f6ff; border: 1px solid rgba(53,224,255,.4);
+             border-radius: 6px; padding: 6px 8px; font: inherit; font-size: 13px; min-width: 120px; }
+      button { background: transparent; color: #9fdcf0; border: 1px solid rgba(53,224,255,.5);
+             border-radius: 6px; padding: 7px 14px; font: inherit; font-size: 13px; cursor: pointer; }
+      button:hover { background: rgba(53,224,255,.14); color: #fff; }
+      .status { margin-top: 10px; font-size: 12px; color: #7fa3b5; }
+      .ok { color: #7de3a1; } .warn { color: #ffcf6b; } .err { color: #ff8f8f; }
+      code { background: rgba(53,224,255,.1); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+      progress { width: 220px; height: 8px; }
+      ul { margin: 8px 0 0 18px; padding: 0; color: #9fc3d4; font-size: 12.5px; }
+    </style>
+  </head>
+  <body>
+    <h1>TransLens</h1>
+    <p class="sub">Выделяешь область на странице (Alt+Shift+S) → OCR → перевод встроенным переводчиком Chrome. Всё локально.</p>
+
+    <div class="card">
+      <div class="row">
+        <label for="source">Язык оригинала</label>
+        <select id="source"></select>
+      </div>
+      <div class="row">
+        <label for="target">Язык перевода</label>
+        <select id="target"></select>
+      </div>
+      <div class="row">
+        <label for="ocrLang">Язык OCR</label>
+        <select id="ocrLang">
+          <option value="eng">eng (английский)</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="psm">Режим OCR</label>
+        <select id="psm">
+          <option value="6">Блок текста (по умолчанию)</option>
+          <option value="7">Одна строка (субтитры)</option>
+          <option value="11">Разрозненный текст (подписи, карточки)</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="upscale">Увеличение перед OCR</label>
+        <select id="upscale">
+          <option value="auto">Авто (мелкий текст увеличить)</option>
+          <option value="1">Не увеличивать</option>
+          <option value="2">×2</option>
+          <option value="3">×3</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="awsFix">Править типовые OCR-ошибки AWS</label>
+        <input type="checkbox" id="awsFix" />
+      </div>
+      <div class="row">
+        <label for="dim">Затемнять страницу при выделении</label>
+        <input type="checkbox" id="dim" />
+      </div>
+    </div>
+
+    <div class="card">
+      <strong>Языковой пакет перевода</strong>
+      <p class="sub" style="margin:6px 0 10px">Chrome качает модель перевода при первом использовании. Скачай её здесь кнопкой — тогда в браузере перевод будет мгновенным.</p>
+      <button id="prepare">Скачать модель en → ru</button>
+      <progress id="prog" max="1" value="0" hidden></progress>
+      <div class="status" id="status">—</div>
+    </div>
+
+    <div class="card">
+      <strong>Как пользоваться</strong>
+      <ul>
+        <li><code>Alt+Shift+S</code> — включить выделение области (или клик по иконке расширения)</li>
+        <li>Тянешь рамку по тексту (в том числе по видео и картинкам) — Esc отменяет</li>
+        <li>Готово: сверху оригинал, снизу перевод; кнопка «Копировать»</li>
+      </ul>
+      <p class="sub" style="margin:12px 0 0">Хоткей меняется на <code>chrome://extensions/shortcuts</code></p>
+    </div>
+
+    <script src="options.js"></script>
+  </body>
+</html>
