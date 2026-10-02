@@ -59,18 +59,27 @@
     if (state.box) { state.box.remove(); state.box = null; }
   }
 
-  function setChip(text, belowRect) {
+  function setChip(text) {
     if (!state.chip) {
       state.chip = el('div', 'cqt-chip');
       document.documentElement.appendChild(state.chip);
     }
     state.chip.textContent = text;
-    const r = belowRect || (state.box && state.box.getBoundingClientRect());
-    if (r) {
-      const top = r.bottom + 6;
-      state.chip.style.top = Math.min(window.innerHeight - 26, top) + 'px';
-      state.chip.style.left = Math.min(window.innerWidth - 180, Math.max(4, r.left)) + 'px';
-    }
+  }
+
+  // Плашка прогресса ставится ВНЕ выделенной области: снятие вкладки идёт с включённым DOM,
+  // а в кроп попадает только прямоугольник выделения (плюс пара пикселей запаса).
+  function placeChipOutside(rect, text) {
+    const gap = 16;
+    const below = rect.y + rect.h + gap;
+    const above = rect.y - 26 - gap;
+    let top = null;
+    if (below + 22 < window.innerHeight) top = below;
+    else if (above > 4) top = above;
+    if (top == null) return; // область во весь экран — лучше промолчать, чем испортить снятие
+    setChip(text);
+    state.chip.style.top = top + 'px';
+    state.chip.style.left = Math.min(window.innerWidth - 190, Math.max(4, rect.x)) + 'px';
   }
 
   function showPanel(rect, srcText, dstText, note, noteKind) {
@@ -178,6 +187,7 @@
     if (state.box) state.box.style.display = 'none';
     await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
     await new Promise((r) => setTimeout(r, 60));
+    placeChipOutside(rect, 'распознаю текст…');
 
     const res = await send({
       type: 'capture-ocr',
@@ -205,6 +215,7 @@
       return;
     }
 
+    if (state.chip) { state.chip.remove(); state.chip = null; }
     const srcText = res.text;
     const info = 'OCR ' + Math.round(res.confidence || 0) + '%';
     showPanel(rect, srcText, 'перевожу…', info + ' · ' + state.opts.sourceLanguage + ' → ' + state.opts.targetLanguage);
