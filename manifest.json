@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "TransLens — область в перевод",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Выделяешь область на странице: OCR распознаёт текст и переводит его встроенным переводчиком Chrome. Всё офлайн, без ключей.",
   "minimum_chrome_version": "138",
   "permissions": ["activeTab", "scripting", "storage", "offscreen", "contextMenus"],

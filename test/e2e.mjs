@@ -173,11 +173,18 @@ async function main() {
     browser.on((m) => {
       if (m.method === 'Runtime.exceptionThrown') swErrors.push(m.params.exceptionDetails.text + ' ' + (m.params.exceptionDetails.exception?.description || ''));
     });
-    const manifest = await browser.send('Runtime.evaluate', {
-      expression: 'JSON.stringify({name: chrome.runtime.getManifest().name, v: chrome.runtime.getManifest().version})',
-      returnByValue: true, awaitPromise: true,
-    }, sw);
-    check('service worker загружен, манифест читается', !!manifest.result.value, manifest.result.value);
+    // воркер просыпается не мгновенно — читаем манифест с повторами, иначе проверка флакает
+    let manifest = { result: { value: null } };
+    for (let i = 0; i < 12; i++) {
+      manifest = await browser.send('Runtime.evaluate', {
+        expression: 'JSON.stringify({name: chrome.runtime.getManifest().name, v: chrome.runtime.getManifest().version})',
+        returnByValue: true, awaitPromise: true,
+      }, sw);
+      if (manifest.result && manifest.result.value) break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    check('service worker загружен, манифест читается', !!(manifest.result && manifest.result.value),
+      JSON.stringify(manifest.result && manifest.result.value));
 
     /* 2. скачиваем языковой пакет en→ru (jest-эмуляция клика) через страницу настроек */
     console.log('шаг: открываю options.html');
@@ -293,12 +300,55 @@ async function main() {
       return r.result.value ? JSON.parse(r.result.value) : null;
     }
 
+    // авто-режим выключен: кейсы OCR должны быть детерминированными, авто проверим отдельно
+    await browser.send('Runtime.evaluate', {
+      expression: `chrome.storage.local.set({ autoWatch: false, watchInterval: 700 })`,
+      awaitPromise: true, returnByValue: true,
+    }, sw);
+
+    const escKey = async () => {
+      const k = { key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 };
+      await browser.send('Input.dispatchKeyEvent', Object.assign({ type: 'keyDown' }, k), page);
+      await browser.send('Input.dispatchKeyEvent', Object.assign({ type: 'keyUp' }, k), page);
+    };
+
     async function readPanel() {
       const r = await browser.send('Runtime.evaluate', {
-        expression: `(() => { const p = document.querySelector('.cqt-panel');
+        expression: `(() => { const ps = document.querySelectorAll('.cqt-panel'); const p = ps[ps.length - 1];
           if (!p) return null;
           const q = (s) => { const e = p.querySelector(s); return e ? e.textContent : ''; };
           return JSON.stringify({ src: q('.cqt-src'), dst: q('.cqt-dst'), note: q('.cqt-note') }); })()`,
+        returnByValue: true,
+      }, page);
+      return r.result.value ? JSON.parse(r.result.value) : null;
+    }
+
+    async function zoneCounts() {
+      const r = await browser.send('Runtime.evaluate', {
+        expression: `JSON.stringify({ boxes: document.querySelectorAll('.cqt-box').length,
+          panels: document.querySelectorAll('.cqt-panel').length,
+          badges: document.querySelectorAll('.cqt-badge').length })`,
+        returnByValue: true,
+      }, page);
+      return JSON.parse(r.result.value);
+    }
+
+    async function zoneState() {
+      const r = await browser.send('Runtime.evaluate', {
+        expression: `(() => {
+          const bs = document.querySelectorAll('.cqt-box'); const ps = document.querySelectorAll('.cqt-panel');
+          const b = bs[bs.length - 1]; const p = ps[ps.length - 1];
+          if (!b || !p) return null;
+          const br = b.getBoundingClientRect(); const note = p.querySelector('.cqt-note');
+          const bd = document.querySelector('.cqt-badge');
+          return JSON.stringify({ boxAuto: b.classList.contains('cqt-auto'),
+            badge: bd ? bd.textContent : '',
+            note: note ? note.textContent : '',
+            title: (p.querySelector('.cqt-title') || {}).textContent || '',
+            src: (p.querySelector('.cqt-src') || {}).textContent || '',
+            boxFixed: getComputedStyle(b).position === 'fixed',
+            boxRect: { x: Math.round(br.left), y: Math.round(br.top), w: Math.round(br.width), h: Math.round(br.height) } });
+        })()`,
         returnByValue: true,
       }, page);
       return r.result.value ? JSON.parse(r.result.value) : null;
@@ -310,20 +360,31 @@ async function main() {
       ['#light', 'светлый UI', /Amazon S3 Intelligent-Tiering moves objects between access tiers/i],
     ];
     for (const [sel, label, expect] of cases) {
-      await browser.send('Runtime.evaluate', { expression: `document.querySelectorAll('.cqt-panel, .cqt-box, .cqt-chip').forEach(e => e.remove())`, returnByValue: true }, page);
+      await escKey();
+      await waitFor(async () => (await zoneCounts()).boxes === 0, { timeout: 8000, label: 'зона убрана перед кейсом ' + sel }).catch(() => {});
       // как в бою: каждое выделение начинается с активации расширения (Alt+Shift+S / иконка)
       await startSelectionOnTestTab();
       await waitFor(overlayState, { label: 'оверлей ' + sel });
       const t0 = Date.now();
       const rect = await dragOver(sel);
-      const opened = await waitFor(async () => {
-        const p = await readPanel();
-        return p && p.dst ? p : null;
-      }, { timeout: 120000, label: 'панель ' + sel });
+      let opened;
+      try {
+        // панель создаётся сразу (dst = '…'), поэтому ждём не её, а результат распознавания
+        opened = await waitFor(async () => {
+          const p = await readPanel();
+          return p && (p.src || /OCR|ошибк|не нашёл|не ответил/i.test(p.note)) ? p : null;
+        }, { timeout: 120000, label: 'OCR ' + sel });
+      } catch (e) {
+        console.error('--- диагностика: панели нет ---');
+        console.error('  зоны: ' + JSON.stringify(await zoneCounts()));
+        console.error('  pageErrors: ' + JSON.stringify(pageErrors).slice(0, 1500));
+        console.error('  swErrors: ' + JSON.stringify(swErrors).slice(0, 1500));
+        throw e;
+      }
       const panel = translationAvailable
         ? await waitFor(async () => {
             const p = await readPanel();
-            return p && p.dst && p.dst !== 'перевожу…' ? p : null;
+            return p && p.dst && p.dst !== 'перевожу…' && p.dst !== '…' ? p : null;
           }, { timeout: 120000, label: 'перевод ' + sel })
         : opened;
       console.log('\n--- ' + label + ' (' + Math.round((Date.now() - t0) / 1000) + ' c) rect=' + JSON.stringify(rect));
@@ -336,6 +397,67 @@ async function main() {
       check('перевод получен (' + sel + ')', /[а-яА-ЯёЁ]/.test(panel.dst || ''),
         JSON.stringify((panel.dst || '').slice(0, 90)), !translationAvailable);
     }
+
+    /* 6. авто-обновление: панель обновляется сама, без кликов */
+    await escKey();
+    await waitFor(async () => (await zoneCounts()).boxes === 0, { timeout: 8000, label: 'зон нет перед авто-тестом' }).catch(() => {});
+    await startSelectionOnTestTab();
+    await waitFor(overlayState, { label: 'оверлей авто-зоны' });
+    const autoRect = await dragOver('#caption');
+    await waitFor(async () => {
+      const p = await readPanel();
+      return p && p.src ? p : null;
+    }, { timeout: 120000, label: 'OCR авто-зоны' });
+    const st0 = await zoneState();
+    check('рамка зоны видна и совпадает с выделением',
+      st0.boxFixed && Math.abs(st0.boxRect.w - Math.round(autoRect.x2 - autoRect.x)) <= 3
+        && Math.abs(st0.boxRect.x - Math.round(autoRect.x)) <= 3,
+      JSON.stringify(st0.boxRect) + ' ~ ' + JSON.stringify(autoRect));
+    check('у зоны есть номер', /^Зона \d+/.test(st0.title), st0.title);
+
+    await browser.send('Page.bringToFront', {}, page);
+    const vis = await browser.send('Runtime.evaluate', { expression: 'document.visibilityState', returnByValue: true }, page);
+    check('вкладка видима (авто-режим идёт только на активной вкладке)', vis.result.value === 'visible', String(vis.result.value));
+
+    const clicked = await browser.send('Runtime.evaluate', {
+      expression: `(() => { const b = document.querySelector('.cqt-panel .cqt-watch'); if (!b) return 'нет кнопки'; b.click(); return 'ok'; })()`,
+      returnByValue: true,
+    }, page);
+    check('в панели есть кнопка авто-режима', String(clicked.result.value) === 'ok', String(clicked.result.value));
+
+    // ждём, пока авто-цикл реально сходит за снимком и отчитается в панели
+    let auto;
+    try {
+      auto = await waitFor(async () => {
+        const s = await zoneState();
+        if (!s || !s.boxAuto || !s.src) return null;
+        return /^авто/.test(s.note) && /обновлено|ждём|нет текста|нет захвата/.test(s.note) ? s : null;
+      }, { timeout: 60000, label: 'авто-цикл обновил панель' });
+    } catch (e) {
+      console.error('--- авто-цикл не отчитался, состояние зоны: ' + JSON.stringify(await zoneState()));
+      console.error('  pageErrors: ' + JSON.stringify(pageErrors).slice(0, 1200));
+      throw e;
+    }
+    console.log('\n--- авто-режим: ' + JSON.stringify({ note: auto.note, badge: auto.badge, auto: auto.boxAuto }));
+    check('авто-режим обновляет панель без кликов',
+      auto.boxAuto && /^авто/.test(auto.note) && /обновлено|ждём|нет текста|нет захвата/.test(auto.note),
+      JSON.stringify({ note: auto.note, badge: auto.badge }));
+    check('номер зоны помечает авто-режим', /авто/.test(auto.badge), auto.badge);
+
+    /* 7. несколько областей одновременно */
+    await startSelectionOnTestTab();
+    await waitFor(overlayState, { label: 'оверлей второй зоны' });
+    await dragOver('#dark');
+    await waitFor(async () => (await zoneCounts()).boxes === 2, { timeout: 120000, label: 'вторая зона' });
+    const zc = await zoneCounts();
+    check('можно выделить несколько областей', zc.boxes === 2 && zc.panels === 2 && zc.badges === 2, JSON.stringify(zc));
+
+    await escKey();
+    const zc2 = await waitFor(async () => {
+      const c = await zoneCounts();
+      return c.boxes === 1 ? c : null;
+    }, { timeout: 10000, label: 'Esc убирает последнюю зону' });
+    check('Esc убирает последнюю зону, остальные живы', zc2.boxes === 1 && zc2.panels === 1, JSON.stringify(zc2));
 
     check('в расширении не было JS-исключений', swErrors.length === 0 && pageErrors.length === 0,
       JSON.stringify([...swErrors, ...pageErrors]).slice(0, 300));

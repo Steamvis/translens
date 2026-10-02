@@ -5,7 +5,10 @@ const LANGS = [
   ['zh', 'zh — китайский'], ['hi', 'hi — хинди'], ['ar', 'ar — арабский'], ['nl', 'nl — нидерландский'],
 ];
 
-const DEFAULTS = { sourceLanguage: 'en', targetLanguage: 'ru', ocrLang: 'eng', psm: '6', dim: true, upscale: 'auto', awsFix: true };
+const DEFAULTS = {
+  sourceLanguage: 'en', targetLanguage: 'ru', ocrLang: 'eng', psm: '6',
+  dim: true, upscale: 'auto', awsFix: true, autoWatch: true, watchInterval: 1200,
+};
 
 function fill(sel, value) {
   for (const [code, label] of LANGS) {
@@ -28,6 +31,8 @@ async function init() {
   $('upscale').value = String(cfg.upscale);
   $('dim').checked = !!cfg.dim;
   $('awsFix').checked = cfg.awsFix !== false;
+  $('autoWatch').checked = cfg.autoWatch !== false;
+  $('watchInterval').value = String(cfg.watchInterval);
 
   const save = async () => {
     await chrome.storage.local.set({
@@ -38,12 +43,16 @@ async function init() {
       upscale: $('upscale').value,
       dim: $('dim').checked,
       awsFix: $('awsFix').checked,
+      autoWatch: $('autoWatch').checked,
+      watchInterval: Math.min(5000, Math.max(700, Number($('watchInterval').value) || DEFAULTS.watchInterval)),
     });
     status('Настройки сохранены', 'ok');
   };
   ['source', 'target', 'ocrLang', 'psm', 'upscale'].forEach((id) => $(id).addEventListener('change', save));
   $('dim').addEventListener('change', save);
   $('awsFix').addEventListener('change', save);
+  $('autoWatch').addEventListener('change', save);
+  $('watchInterval').addEventListener('change', save);
 
   await checkAvailability();
 }
