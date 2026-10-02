@@ -15,7 +15,12 @@ const DEFAULTS = {
   awsFix: true,
 };
 
-chrome.runtime.onInstalled.addListener(() => {
+chrome.runtime.onInstalled.addListener((details) => {
+  // При первой установке сразу открываем настройки: языковой пакет Chrome качает только
+  // по клику, и без этого шага первый перевод выглядит как «ничего не происходит».
+  if (details && details.reason === 'install') {
+    chrome.runtime.openOptionsPage();
+  }
   chrome.contextMenus.removeAll(() => {
     chrome.contextMenus.create({
       id: 'cqt-translate-region',
@@ -70,6 +75,11 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     })().then(sendResponse, (e) => sendResponse({ ok: false, reason: String((e && e.message) || e) }));
     return true;
   }
+  if (msg.type === 'debug-state') {
+    // Отвечаем мгновенно и без chrome.* — работает, даже если предыдущая операция ещё висит.
+    sendResponse({ ok: true, stage: stage.name, note: stage.note, error: stage.error, stuckMs: Date.now() - stage.since });
+    return true;
+  }
   if (msg.type === 'capture-ocr') {
     captureAndOcr(msg, sender).then(sendResponse, (e) => sendResponse({ ok: false, error: String(e && e.message || e) }));
     return true;
@@ -80,27 +90,50 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 });
 
+// Журнал этапов. Нужен, чтобы при зависании спросить воркер, где он застрял: он отвечает
+// на сообщения даже когда сам ждёт чего-то внутри, поэтому панель показывает этап, а не молчит.
+let stage = { name: 'idle', since: Date.now(), error: null, note: '' };
+function setStage(name, note) { stage = { name, since: Date.now(), error: null, note: note || '' }; }
+function failStage(e) { stage = Object.assign({}, stage, { error: String((e && e.message) || e) }); }
+
 async function captureAndOcr(msg, sender) {
   const tab = sender.tab;
   if (!tab || tab.id == null) return { ok: false, error: 'нет вкладки-источника' };
   let dataUrl;
+  setStage('capture', 'ExtractVisibleTab');
   try {
     dataUrl = await chrome.tabs.captureVisibleTab(tab.windowId, { format: 'png' });
   } catch (e) {
+    failStage(e);
     return { ok: false, error: 'Не удалось снять вкладку: ' + String(e && e.message || e) + ' (закрой DevTools на этой вкладке и попробуй снова)' };
   }
-  await ensureOffscreen();
-  const res = await chrome.runtime.sendMessage({
-    type: 'offscreen-ocr',
-    dataUrl,
-    rect: msg.rect,
-    viewport: msg.viewport,
-    lang: msg.lang || DEFAULTS.ocrLang,
-    psm: msg.psm || DEFAULTS.psm,
-    upscale: msg.upscale || DEFAULTS.upscale,
-    awsFix: msg.awsFix !== false,
-  });
-  return res || { ok: false, error: 'offscreen не ответил' };
+  setStage('offscreen', 'создаю offscreen-документ');
+  try {
+    await ensureOffscreen();
+  } catch (e) {
+    failStage(e);
+    return { ok: false, error: 'Не удалось создать offscreen-документ: ' + String(e && e.message || e) };
+  }
+  setStage('ocr', 'tesseract в offscreen');
+  let res;
+  try {
+    res = await chrome.runtime.sendMessage({
+      type: 'offscreen-ocr',
+      dataUrl,
+      rect: msg.rect,
+      viewport: msg.viewport,
+      lang: msg.lang || DEFAULTS.ocrLang,
+      psm: msg.psm || DEFAULTS.psm,
+      upscale: msg.upscale || DEFAULTS.upscale,
+      awsFix: msg.awsFix !== false,
+    });
+  } catch (e) {
+    failStage(e);
+    return { ok: false, error: 'offscreen-OCR упал: ' + String(e && e.message || e) };
+  }
+  if (!res) { failStage(new Error('offscreen не ответил')); return { ok: false, error: 'offscreen не ответил' }; }
+  setStage('idle', '');
+  return res;
 }
 
 let offscreenCreating = null;

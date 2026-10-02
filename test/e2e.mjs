@@ -236,6 +236,14 @@ async function main() {
       ov.position === 'fixed' && Math.abs(ov.w - ov.vw) <= 2 && Math.abs(ov.h - ov.vh) <= 2,
       JSON.stringify(ov));
 
+    /* 4b. диагностический канал: панель спрашивает воркер про этап при таймауте */
+    const dbg = await browser.send('Runtime.evaluate', {
+      expression: `(async () => JSON.stringify(await chrome.runtime.sendMessage({ type: 'debug-state' })))()`,
+      awaitPromise: true, returnByValue: true,
+    }, opt);
+    const dbgVal = String(dbg.result.value);
+    check('воркер отвечает на диагностику этапа', dbgVal.includes('"ok":true') && dbgVal.includes('stage'), dbgVal.slice(0, 160));
+
     /* 5. реальный drag мышью по картинке с субтитрами Cloud Quest */
     async function dragOver(selector) {
       const box = await browser.send('Runtime.evaluate', {

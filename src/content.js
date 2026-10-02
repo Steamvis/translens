@@ -24,8 +24,17 @@
     return n;
   }
 
-  function send(msg) {
-    return new Promise((resolve) => {
+  // Таймаут обязателен: без него любая заминка в воркере/offscreen оставляет пользователя
+  // с вечной плашкой «распознаю текст…» и без объяснений.
+  const STAGE_RU = {
+    idle: 'воркер простаивает',
+    capture: 'захват вкладки (captureVisibleTab)',
+    offscreen: 'создание offscreen-документа',
+    ocr: 'распознавание текста (tesseract)',
+  };
+
+  function send(msg, timeoutMs) {
+    const p = new Promise((resolve) => {
       try {
         chrome.runtime.sendMessage(msg, (res) => {
           const err = chrome.runtime.lastError;
@@ -36,6 +45,11 @@
         resolve({ ok: false, reason: String(e && e.message || e) });
       }
     });
+    if (!timeoutMs) return p;
+    return Promise.race([p, new Promise((res) => setTimeout(
+      () => res({ ok: false, timeout: true, reason: 'внутренний таймаут ' + Math.round(timeoutMs / 1000) + ' с' }),
+      timeoutMs,
+    ))]);
   }
 
   async function getOpts() {
@@ -95,6 +109,11 @@
         setTimeout(() => { copyBtn.textContent = 'Копировать'; }, 1200);
       } catch (e) { copyBtn.textContent = 'Не вышло'; }
     });
+    if (srcText) {
+      const retryBtn = el('button', 'cqt-btn', 'Обновить перевод');
+      retryBtn.addEventListener('click', () => { runTranslation(); });
+      head.appendChild(retryBtn);
+    }
     const closeBtn = el('button', 'cqt-btn', 'Закрыть');
     closeBtn.addEventListener('click', closePanel);
     head.appendChild(copyBtn);
@@ -151,6 +170,55 @@
     }
   }
 
+  async function availabilityOf() {
+    if (!hasLocalTranslator()) return null;
+    try {
+      return await globalThis.Translator.availability({
+        sourceLanguage: state.opts.sourceLanguage,
+        targetLanguage: state.opts.targetLanguage,
+      });
+    } catch (e) { return null; }
+  }
+
+  function progressNote() {
+    const pct = state.localProgress ? Math.round(state.localProgress * 100) : null;
+    return 'Языковой пакет ещё качается' + (pct ? ' (' + pct + '%)' : '') +
+      '. Дождись и нажми «Обновить перевод» — или скачай пакет заранее: настройки расширения → «Скачать модель».';
+  }
+
+  // Единственное место, где текст уходит в перевод: панель сначала показывает оригинал,
+  // потом сюда приходит результат (в том числе по кнопке «Обновить перевод»).
+  async function runTranslation() {
+    const text = state.retryText;
+    if (!text) return;
+    const o = state.opts;
+    const info = state.retryInfo || '';
+    const avail = await availabilityOf();
+
+    if (avail === 'unavailable') {
+      updateDst('—', 'В этом Chrome нет модели для пары ' + o.sourceLanguage + ' → ' + o.targetLanguage + '.', 'err');
+      return;
+    }
+    if (avail === 'downloadable') {
+      updateDst('—', progressNote(), 'warn');
+    } else {
+      updateDst('перевожу…', info + ' · ' + o.sourceLanguage + ' → ' + o.targetLanguage);
+    }
+
+    const tr = await translate(text);
+    if (tr && tr.ok && tr.text) {
+      updateDst(tr.text, info + ' · ' + o.sourceLanguage + ' → ' + o.targetLanguage + ' · встроенный переводчик Chrome, офлайн');
+      return;
+    }
+    const why = (tr && (tr.reason || tr.error)) || 'неизвестная ошибка';
+    if (tr && tr.timeout) { updateDst('—', progressNote(), 'warn'); return; }
+    if (tr && tr.noGesture) {
+      updateDst('—', 'Chrome требует жест для загрузки модели перевода. Выдели область ещё раз — на этот раз загрузка должна пройти.', 'warn');
+      return;
+    }
+    updateDst(text, 'Перевести не удалось: ' + why, 'err');
+  }
+
   async function translate(text) {
     const o = state.opts;
     const work = (async () => {
@@ -193,7 +261,7 @@
       type: 'capture-ocr',
       rect, viewport,
       lang: state.opts.ocrLang, psm: state.opts.psm, upscale: state.opts.upscale, awsFix: state.opts.awsFix,
-    });
+    }, 45000);
 
     cleanup(true);
     if (state.box) {
@@ -206,7 +274,16 @@
     }
 
     if (!res || !res.ok) {
-      const text = (res && (res.error || res.reason)) || 'не удалось распознать';
+      let text = (res && (res.error || res.reason)) || 'не удалось распознать';
+      if (res && res.timeout) {
+        // Спрашиваем воркер, где он застрял: он отвечает даже во время ожидания.
+        const st = await send({ type: 'debug-state' }, 3000);
+        const where = (st && st.ok && STAGE_RU[st.stage]) || (st && st.stage) || 'неизвестно';
+        text = 'Расширение не ответило: ' + text + '. Застряло на этапе: ' + where +
+          (st && st.stuckMs ? ' (' + Math.round(st.stuckMs / 1000) + ' с)' : '') +
+          (st && st.error ? '. Ошибка: ' + st.error : '') +
+          '. Скажи мне этот текст — по нему видно причину.';
+      }
       showPanel(rect, '', '—', text, 'err');
       return;
     }
@@ -217,26 +294,12 @@
 
     if (state.chip) { state.chip.remove(); state.chip = null; }
     const srcText = res.text;
-    const info = 'OCR ' + Math.round(res.confidence || 0) + '%';
-    showPanel(rect, srcText, 'перевожу…', info + ' · ' + state.opts.sourceLanguage + ' → ' + state.opts.targetLanguage);
-
-    const hintTimer = setTimeout(() => {
-      updateDst('перевожу…', 'Первый раз модель перевода качается — это может занять 10–30 секунд.', 'warn');
-    }, 4000);
-
-    const tr = await translate(srcText);
-    clearTimeout(hintTimer);
-
-    if (tr && tr.ok && tr.text) {
-      updateDst(tr.text, info + ' · ' + state.opts.sourceLanguage + ' → ' + state.opts.targetLanguage + ' · встроенный переводчик Chrome, офлайн');
-    } else if (tr && tr.noGesture) {
-      updateDst('—', 'Chrome требует жест для загрузки модели перевода. Выдели область ещё раз — на этот раз загрузка должна пройти.', 'warn');
-    } else if (tr && tr.timeout) {
-      updateDst('—', 'Языковой пакет ещё качается. Открой настройки расширения (chrome://extensions → TransLens → «Параметры») и нажми «Скачать модель», либо просто выдели область ещё раз через минуту.', 'warn');
-    } else {
-      const why = (tr && (tr.reason || tr.error)) || 'неизвестная ошибка';
-      updateDst(srcText, 'Перевести не удалось: ' + why, 'err');
-    }
+    const meta = res.meta || {};
+    state.retryText = srcText;
+    state.retryInfo = 'OCR ' + Math.round(res.confidence || 0) + '%' +
+      (meta.ms ? ' · ' + meta.ms + ' мс' : '') + (meta.invert ? ' · инверсия' : '');
+    showPanel(rect, srcText, 'перевожу…', state.retryInfo + ' · ' + state.opts.sourceLanguage + ' → ' + state.opts.targetLanguage);
+    runTranslation();
   }
 
   function startSelection() {
@@ -290,7 +353,12 @@
         const h = Math.abs(e.clientY - state.start.y);
         detach();
         if (w < 6 || h < 6) { cancel(); return; }
-        finishSelection({ x, y, w, h });
+        const r = { x, y, w, h, top: y, bottom: y + h, left: x, right: x + w };
+        finishSelection(r).catch((e) => {
+          cleanup();
+          if (state.box) { state.box.remove(); state.box = null; }
+          showPanel(r, '', '—', 'Ошибка расширения: ' + String((e && e.message) || e), 'err');
+        });
       };
 
       const onKey = (e) => {
