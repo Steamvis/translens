@@ -208,11 +208,12 @@
   }
 
   // Наши панели/бейджи не должны попасть в снятие — иначе OCR прочитает собственный перевод.
-  function hideOurDom(rect, target) {
+  function hideOurDom(rect) {
     const box = { left: rect.x, top: rect.y, right: rect.x + rect.w, bottom: rect.y + rect.h };
     const nodes = [];
+    // Панель самой зоны тоже прячем: если её поставили поверх области, OCR прочитает
+    // собственный перевод (цена — мигание панели в этом положении).
     for (const z of state.zones) {
-      if (z === target) continue;
       if (z.panel) nodes.push(z.panel);
       if (z.badge) nodes.push(z.badge);
     }
@@ -242,7 +243,7 @@
       await paint();
       rel = await captureSlot();
       const rect = cropRect(zone, first ? 0 : ZONE_INSET);
-      hidden = hideOurDom(cropRect(zone, 0), zone);
+      hidden = hideOurDom(cropRect(zone, 0));
       if (hidden.length) await paint();
       return await send({
         type: 'capture-ocr',
@@ -405,6 +406,15 @@
   function placePanel(zone) {
     const panel = zone.panel;
     if (!panel) return;
+    // Пользователь поставил панель руками — авто-размещение больше не вмешивается
+    // (иначе после каждого цикла авто-режима панель прыгала бы назад).
+    if (zone.panelPinned) {
+      const w = panel.offsetWidth || 320;
+      const h = panel.offsetHeight || 120;
+      panel.style.left = clamp(zone.panelPinned.left, 4, Math.max(4, window.innerWidth - w - 4)) + 'px';
+      panel.style.top = clamp(zone.panelPinned.top, 4, Math.max(4, window.innerHeight - 32)) + 'px';
+      return;
+    }
     const r = zone.rect;
     const pw = panel.offsetWidth || 320;
     const ph = panel.offsetHeight || 120;
@@ -439,11 +449,56 @@
     panel.style.top = best.top + 'px';
   }
 
+  function clamp(v, lo, hi) { return Math.min(hi, Math.max(lo, v)); }
+
+  // Панели с одинаковым z-index рисуются по порядку в DOM — перенесённая уходит в конец.
+  function raisePanel(panel) {
+    if (document.documentElement.lastElementChild !== panel) document.documentElement.appendChild(panel);
+  }
+
+  function beginPanelMove(zone, e) {
+    const panel = zone.panel;
+    if (!panel) return;
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const r = panel.getBoundingClientRect();
+    const start = { x: e.clientX, y: e.clientY, left: r.left, top: r.top };
+    zone.panelPinned = { left: Math.round(r.left), top: Math.round(r.top) };
+    panel.classList.add('cqt-moving');
+    raisePanel(panel);
+    const onMove = (ev) => {
+      const w = r.width, h = r.height;
+      const left = clamp(Math.round(start.left + (ev.clientX - start.x)), 4, Math.max(4, window.innerWidth - w - 4));
+      const top = clamp(Math.round(start.top + (ev.clientY - start.y)), 4, Math.max(4, window.innerHeight - 32));
+      zone.panelPinned = { left, top };
+      panel.style.left = left + 'px';
+      panel.style.top = top + 'px';
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove, true);
+      window.removeEventListener('mouseup', onUp, true);
+      panel.classList.remove('cqt-moving');
+    };
+    window.addEventListener('mousemove', onMove, true);
+    window.addEventListener('mouseup', onUp, true);
+  }
+
   function makePanel(zone) {
     const panel = el('div', 'cqt-panel');
     panel.dataset.cqtZone = zone.id;
     const head = el('div', 'cqt-head');
     head.appendChild(el('div', 'cqt-title', 'Зона ' + zone.n));
+    // Тянем панель за заголовок (но не за кнопки); двойной клик — вернуть авто-позицию.
+    head.title = 'Потяни, чтобы перенести панель · двойной клик — вернуть к области';
+    head.addEventListener('mousedown', (e) => {
+      if (e.target.closest && e.target.closest('button')) return;
+      beginPanelMove(zone, e);
+    });
+    head.addEventListener('dblclick', (e) => {
+      if (e.target.closest && e.target.closest('button')) return;
+      zone.panelPinned = null;
+      placePanel(zone);
+    });
 
     const watchBtn = el('button', 'cqt-btn cqt-watch', 'Следить');
     watchBtn.addEventListener('click', () => {

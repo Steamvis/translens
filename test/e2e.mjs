@@ -49,14 +49,19 @@ class CDP {
       }
     });
   }
-  send(method, params = {}, sessionId) {
+  send(method, params = {}, sessionId, label) {
     const id = ++this.seq;
     const payload = { id, method, params };
     if (sessionId) payload.sessionId = sessionId;
     this.ws.send(JSON.stringify(payload));
     return new Promise((resolve, reject) => {
       this.pending.set(id, { resolve, reject, method });
-      setTimeout(() => { if (this.pending.delete(id)) reject(new Error('timeout ' + method)); }, 60000);
+      setTimeout(() => {
+        if (this.pending.delete(id)) {
+          const snippet = params && params.expression ? ' expr=' + String(params.expression).replace(/\s+/g, ' ').slice(0, 160) : '';
+          reject(new Error('timeout ' + method + (label ? ' [' + label + ']' : '') + snippet));
+        }
+      }, 45000);
     });
   }
   on(fn) { this.listeners.add(fn); }
@@ -360,6 +365,7 @@ async function main() {
       ['#light', 'светлый UI', /Amazon S3 Intelligent-Tiering moves objects between access tiers/i],
     ];
     for (const [sel, label, expect] of cases) {
+      console.log('шаг: кейс ' + sel);
       await escKey();
       await waitFor(async () => (await zoneCounts()).boxes === 0, { timeout: 8000, label: 'зона убрана перед кейсом ' + sel }).catch(() => {});
       // как в бою: каждое выделение начинается с активации расширения (Alt+Shift+S / иконка)
@@ -400,7 +406,15 @@ async function main() {
 
     /* 6. авто-обновление: панель обновляется сама, без кликов */
     await escKey();
-    await waitFor(async () => (await zoneCounts()).boxes === 0, { timeout: 8000, label: 'зон нет перед авто-тестом' }).catch(() => {});
+    const zcBefore = await waitFor(async () => {
+      const c = await zoneCounts();
+      return c.boxes === 0 ? c : null;
+    }, { timeout: 8000, label: 'зон нет перед авто-тестом' }).catch(async () => {
+      const c = await zoneCounts();
+      console.error('--- остались зоны перед авто-тестом: ' + JSON.stringify(c));
+      return c;
+    });
+    check('после кейсов не осталось зон', zcBefore.boxes === 0, JSON.stringify(zcBefore));
     await startSelectionOnTestTab();
     await waitFor(overlayState, { label: 'оверлей авто-зоны' });
     const autoRect = await dragOver('#caption');
@@ -419,11 +433,17 @@ async function main() {
     const vis = await browser.send('Runtime.evaluate', { expression: 'document.visibilityState', returnByValue: true }, page);
     check('вкладка видима (авто-режим идёт только на активной вкладке)', vis.result.value === 'visible', String(vis.result.value));
 
+    // кнопку берём именно у последней панели (панель своей зоны), иначе легко нажать чужую
     const clicked = await browser.send('Runtime.evaluate', {
-      expression: `(() => { const b = document.querySelector('.cqt-panel .cqt-watch'); if (!b) return 'нет кнопки'; b.click(); return 'ok'; })()`,
+      expression: `(() => { const ps = document.querySelectorAll('.cqt-panel');
+        const p = ps[ps.length - 1]; if (!p) return 'нет панели';
+        const b = p.querySelector('.cqt-watch'); if (!b) return 'нет кнопки';
+        const title = (p.querySelector('.cqt-title') || {}).textContent || '';
+        b.click(); return 'ok:' + title + ':' + b.textContent; })()`,
       returnByValue: true,
     }, page);
-    check('в панели есть кнопка авто-режима', String(clicked.result.value) === 'ok', String(clicked.result.value));
+    console.log('  кнопка авто-режима: ' + String(clicked.result.value));
+    check('в панели есть кнопка авто-режима', String(clicked.result.value).startsWith('ok:'), String(clicked.result.value));
 
     // ждём, пока авто-цикл реально сходит за снимком и отчитается в панели
     let auto;
@@ -443,6 +463,47 @@ async function main() {
       auto.boxAuto && /^авто/.test(auto.note) && /обновлено|ждём|нет текста|нет захвата/.test(auto.note),
       JSON.stringify({ note: auto.note, badge: auto.badge }));
     check('номер зоны помечает авто-режим', /авто/.test(auto.badge), auto.badge);
+
+    /* 6b. панель можно перенести руками, авто-размещение её больше не сбивает */
+    async function panelPos() {
+      const r = await browser.send('Runtime.evaluate', {
+        expression: `(() => { const ps = document.querySelectorAll('.cqt-panel'); const p = ps[ps.length - 1];
+          if (!p) return null; const b = p.getBoundingClientRect();
+          return JSON.stringify({ left: Math.round(b.left), top: Math.round(b.top) }); })()`,
+        returnByValue: true,
+      }, page);
+      return r.result.value ? JSON.parse(r.result.value) : null;
+    }
+
+    const grab = await browser.send('Runtime.evaluate', {
+      expression: `(() => { const ps = document.querySelectorAll('.cqt-panel'); const p = ps[ps.length - 1];
+        const h = p.querySelector('.cqt-head'); const b = p.getBoundingClientRect(); const hb = h.getBoundingClientRect();
+        return JSON.stringify({ x: Math.round(hb.left + 24), y: Math.round(hb.top + 7), left: Math.round(b.left), top: Math.round(b.top) }); })()`,
+      returnByValue: true,
+    }, page);
+    const g = JSON.parse(grab.result.value);
+    const dx = -160;
+    const dy = 140;
+    const btn = { button: 'left', buttons: 1, clickCount: 1 };
+    await browser.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: g.x, y: g.y, buttons: 0 }, page);
+    await browser.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: g.x, y: g.y, ...btn }, page);
+    for (let i = 1; i <= 4; i++) {
+      await browser.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: g.x + (dx * i) / 4, y: g.y + (dy * i) / 4, ...btn }, page);
+    }
+    await browser.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: g.x + dx, y: g.y + dy, ...btn }, page);
+    const moved = await panelPos();
+    check('панель переносится мышью за заголовок',
+      Math.abs(moved.left - (g.left + dx)) <= 6 && Math.abs(moved.top - (g.top + dy)) <= 6,
+      JSON.stringify(moved) + ' ожидалось ~' + JSON.stringify({ left: g.left + dx, top: g.top + dy }));
+
+    // авто-цикл должен продолжать обновлять панель, но не возвращать её на место
+    await waitFor(async () => {
+      const s = await zoneState();
+      return s && /^авто/.test(s.note) && /обновлено|ждём изменений/.test(s.note) ? s : null;
+    }, { timeout: 60000, label: 'авто-цикл после переноса панели' });
+    const stayed = await panelPos();
+    check('авто-размещение не сбивает перенесённую панель',
+      stayed.left === moved.left && stayed.top === moved.top, JSON.stringify(stayed) + ' было ' + JSON.stringify(moved));
 
     /* 7. несколько областей одновременно */
     await startSelectionOnTestTab();

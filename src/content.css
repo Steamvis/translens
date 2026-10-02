@@ -86,6 +86,8 @@
 .cqt-head {
   display: flex !important;
   flex-wrap: wrap !important;
+  cursor: move !important;
+  user-select: none !important;
   align-items: center !important;
   gap: 6px !important;
   padding: 7px 10px !important;
@@ -190,5 +192,11 @@
 }
 
 .cqt-panel.cqt-flash { animation: cqt-flash 0.7s ease-out !important; }
+
+/* панель тянут за заголовок */
+.cqt-panel.cqt-moving {
+  outline: 1px dashed #35e0ff !important;
+  opacity: 0.94 !important;
+}
 
 .cqt-note.cqt-err { color: #ff8f8f !important; }
