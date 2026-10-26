@@ -1,0 +1,6 @@
+.venv/
+.venv-export/
+base/
+out/
+__pycache__/
+train.log

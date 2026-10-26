@@ -1,0 +1,38 @@
+{
+  "base": "Helsinki-NLP/opus-mt-en-ru",
+  "args": {
+    "epochs": 3,
+    "bs": 16,
+    "lr": 3e-05,
+    "max_len": 128,
+    "out": "out/opus-mt-en-ru-cloud",
+    "seed": 42,
+    "base": "/Users/alexey/Projects/translate-extension/ml/base/opus-mt-en-ru"
+  },
+  "train_pairs": 10361,
+  "valid_pairs": 777,
+  "epochs": [
+    {
+      "epoch": 1,
+      "valid_loss": 0.7089,
+      "valid_ppl": 2.03,
+      "saved": true,
+      "sec": 163
+    },
+    {
+      "epoch": 2,
+      "valid_loss": 0.6344,
+      "valid_ppl": 1.89,
+      "saved": true,
+      "sec": 339
+    },
+    {
+      "epoch": 3,
+      "valid_loss": 0.6192,
+      "valid_ppl": 1.86,
+      "saved": true,
+      "sec": 502
+    }
+  ],
+  "valid_loss_before": 1.7577
+}

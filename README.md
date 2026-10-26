@@ -81,3 +81,7 @@ OCR и перевод. Тестовая копия расширения полу
 - `Translator.create()` требует transient activation при первой загрузке модели, поэтому прогрев
   вызывается на `mouseup` (жест ещё активен) и живёт в MAIN world страницы (`window.__cqtTranslator`).
 - MV3 service worker не умеет `new Worker()` — OCR живёт в offscreen-документе.
+
+## Своя модель перевода
+
+В `ml/` модель opus-mt-en-ru дообучена на облачной документации (11 880 пар en-ru): BLEU на облачных текстах 17.8 -> 50.4, точность терминов 74.9% -> 96.2%, экспорт в ONNX для transformers.js. Подробности и команды: [ml/README.md](ml/README.md).
